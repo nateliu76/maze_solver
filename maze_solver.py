@@ -1,7 +1,32 @@
 
 import sys, os
 import Queue
+import heapq
 from PIL import Image
+
+PATH_COLOR = 255
+MARK_PATH = -1
+
+
+"""
+a class made to represent borders and openings of maze image
+
+"""
+
+class Rectangle:
+    def __init__(self, xmin, xmax, ymin, ymax):
+        self.xmin = xmin
+        self.xmax = xmax
+        self.ymin = ymin
+        self.ymax = ymax
+    
+    def long_len(self):
+        return max(self.xmax - self.xmin, self.ymax - self.ymin)
+
+    def overlap(self, that):
+        x_overlap = self.xmax >= that.xmin and self.xmin <= that.xmax 
+        y_overlap = self.ymax >= that.ymin and self.ymin <= that.ymax
+        return x_overlap and y_overlap
 
 
 """
@@ -11,143 +36,77 @@ borders are not included
 @return : cropped Image file
 
 """
-def crop_maze(width, height, im, pixels):
-    left = search_wall_location(1, width, height, pixels)
-    top = search_wall_location(2, width, height, pixels)
-    right = search_wall_location(3, width, height, pixels)
-    bottom = search_wall_location(4, width, height, pixels)
+def crop_maze(im, pixels):
+    global PATH_COLOR
     
-    return im.crop((left, top, right, bottom))
-
+    height = len(pixels)
+    width = len(pixels[0])
     
-"""
-helper method for cropping the image, searches for location of walls
-
-mode:
-    1: left wall
-    2: top wall
-    3. right wall
-    4. bottom wall
+    xmin = width
+    xmax = -1
+    ymin = height
+    ymax = -1
     
-    corresponding side and mode:
-    1/2 2 2/3
-    1       3
-    1       3
-    1       3
-    1/4 4 4/3
+    for i in xrange(height / 2):
+        for j in xrange(width / 2):
+            if pixels[i][j] != PATH_COLOR and xmin == width:
+                ymin = i
+                xmin = j
+            elif pixels[i][j] != PATH_COLOR and j < xmin:
+                xmin = j
+            if pixels[height - 1 - i][width - 1 - j] != PATH_COLOR and xmax == -1:
+                ymax = height - 1 - i
+                xmax = width - 1 - j
+            elif pixels[height - 1 - i][width - 1 - j] != PATH_COLOR and width - 1 - j > xmax:
+                xmax = width - 1 - j
     
-@return: corresponding wall location
-
-"""
-def search_wall_location(mode, width, height, pixels):
-    # path color is white
-    path_color = 255
-    
-    # for scanning left
-    if mode == 1:
-        offset = 0
-        incr = width
-        scan_range = height * incr
-        adv = 1
-        limit = width
+    if xmin == width and ymin == height:
+        print "Error, invalid maze image"
+        sys.exit()
         
-    # for scanning top
-    elif mode == 2:
-        offset = 0
-        incr = 1
-        scan_range = width
-        adv = width
-        limit = height * width
-        
-    # for scanning right
-    elif mode == 3:
-        offset = width - 1
-        incr = width
-        scan_range = height * incr
-        adv = -1
-        limit = -1
-        
-    # for scanning bottom
-    elif mode == 4:
-        offset = (height - 1) * width
-        incr = 1
-        scan_range = width
-        adv = -1 * width
-        limit = -1
-    
-    # scan for walls
-    while offset != limit:
-        for i in xrange(offset, scan_range + offset, incr):
-            if pixels[i] != path_color:
-                if mode == 1:
-                    return offset
-                elif mode == 2:
-                    return offset / width
-                elif mode == 3:
-                    return offset + 1
-                elif mode == 4:
-                    return offset / width + 1
-        offset += adv
-    
-    print "error, invalid maze image"
-    sys.exit()
+    return im.crop((xmin, ymin, xmax + 1, ymax + 1))
 
     
 """
 finds the entrance and exit of the maze
-
-@return openings: list of location of the openings in format:
-                  (start pixel, end pixel, side of wall, edge)
+@return openings: in format of rectangles (see Rectangle class)
 
 """
-def find_entrance_exit(width, height, pixels):
+def find_entrance_exit(pixels):
+    height = len(pixels)
+    width = len(pixels[0])
+
     openings = []
     
+    # constructor of Rectangle needs (xmin, xmax, ymin, ymax)
+    left_rect = Rectangle(0, 1, 0, height)
+    right_rect = Rectangle(width - 1, width, 0, height)
+    top_rect = Rectangle(0, width, 0, 1)
+    bottom_rect = Rectangle(0, width, height - 1, height)
+    
     # scan to find openings
-    # 1 for left col, 2 for top row, 3 for right col, 4 for bottom row
-    search_side_for_opening(1, width, height, pixels, openings)
-    search_side_for_opening(2, width, height, pixels, openings)
-    search_side_for_opening(3, width, height, pixels, openings)
-    search_side_for_opening(4, width, height, pixels, openings)
+    find_opening_ranges(left_rect, openings, pixels)
+    find_opening_ranges(right_rect, openings, pixels)
+    find_opening_ranges(top_rect, openings, pixels)
+    find_opening_ranges(bottom_rect, openings, pixels)
     
-    """
-    corresponding side and mode:
-    
-    1/2 2 2/3
-    1       3
-    1       3
-    1       3
-    1/4 4 4/3
-    
-    """
-    # openings in the format of (start, end, side of opening, edge)
-    
-    # error handling when >2  or <2 openings are detected
+    # deal with error and edge cases
     if len(openings) < 2:
-        print "error, can't find entrance/exit"
+        print "error, unable to successfully find entrance/exit"
         sys.exit()
     elif len(openings) > 2:
-        temp_opening = []
-        opening_edge = []
-        
-        # an edge case is when an opening is at an edge, will get 2 openings
-        # check all edges to see if any are at the same edge
-        for i in xrange(0, 5):
-            for opening in openings:
-                edge = opening[3]
-                if edge == 0 and i == 0:
-                    temp_opening.append(opening)
-                elif edge == i:
-                    opening_edge.append(opening)
+        del_flag = [0] * len(openings)
+        for i in xrange(len(openings)):
+            for j in xrange(i + 1, len(openings)):
+                if openings[i].overlap(openings[j]):
+                    if openings[i].long_len() > openings[j].long_len():
+                        del_flag[j] = 1
+                    else:
+                        del_flag[i] = 1
             
-            # if opening is at the edge keep first opening, discard the other
-            if len(opening_edge) > 1:
-                temp_opening.append(opening_edge[0])
-            opening_edge = []
+        openings = [openings[i] for i in xrange(len(del_flag)) if del_flag[i] == 0]
         
-        openings = temp_opening
-        
-        if len(openings) > 2:
+    if len(openings) > 2:
             print "error, invalid maze image, too many openings"
             sys.exit()
     
@@ -157,197 +116,185 @@ def find_entrance_exit(width, height, pixels):
 """
 helper method for finding the openings or entrance/exit of the maze
 modifies the list of openings
-@return: nothing
 
 """
-def search_side_for_opening(mode, width, height, pixels, openings):
-    path_color = 255
+def find_opening_ranges(rect, openings, pixels):
+    global PATH_COLOR
     
-    """
-    edges defined as
-    1 ---- 2
-    |      |
-    |      |
-    3 ---- 4
+    height = len(pixels)
+    width = len(pixels[0])
     
-    openings not at an edge will have edge value as 0
+    start1, end1 = -1, -1
+    start2, end2 = -1, -1
     
-    """
+    if rect.xmax - rect.xmin == 1:
+        prev = (1, 0)
+        horizontal = False
+    else:
+        prev = (0, 1)
+        horizontal = True
     
-    start1 = -1
-    end1 = -1
-    edge1 = 0
+    for i in xrange(rect.ymin, rect.ymax):
+        for j in xrange(rect.xmin, rect.xmax):
+            if pixels[i][j] == PATH_COLOR and start1 == -1:
+                start1 = j if horizontal else i
+            elif (start1 != -1 and start2 == -1
+              and pixels[i - prev[0]][j - prev[1]] == PATH_COLOR and pixels[i][j] != PATH_COLOR):
+                end1 = j if horizontal else i
+            elif end1 != -1 and start2 == -1 and pixels[i][j] == PATH_COLOR:
+                start2 = j if horizontal else i
+            elif (start2 != -1 and pixels[i - prev[0]][j - prev[1]] == PATH_COLOR 
+              and pixels[i][j] != PATH_COLOR):
+                end2 = j if horizontal else i
+                break
     
-    start2 = -1
-    end2 = -1
-    edge2 = 0
-    
-    # for scanning left
-    if mode == 1:
-        offset = 0
-        incr = width
-        scan_range = height * width
-        
-    # for scanning top
-    elif mode == 2:
-        offset = 0
-        incr = 1
-        scan_range = width
-        
-    # for scanning right
-    elif mode == 3:
-        offset = width - 1
-        incr = width
-        scan_range = height * width
-        
-    # for scanning bottom
-    elif mode == 4:
-        offset = (height - 1) * width
-        incr = 1
-        scan_range = width
-    
-    # scan and find pixel coordinate of openings
-    for i in xrange(offset, scan_range + offset, incr):
-        if pixels[i] == path_color and start1 == -1:
-            start1 = i
-            # for edge case where opening starts at an edge
-            if i == offset:
-                if mode == 1 or mode == 2:
-                    edge1 = 1
-                elif mode == 3:
-                    edge1 = 2
-                elif mode == 4:
-                    edge1 = 3
-                
-        elif (start1 != -1 and start2 == -1
-              and pixels[i - incr] == path_color and pixels[i] != path_color):
-            end1 = i - incr
-        elif end1 != -1 and start2 == -1 and pixels[i] == path_color:
-            start2 = i
-        elif start2 != -1 and pixels[i - incr] == path_color and pixels[i] != path_color:
-            end2 = i - incr
-            break
-            
-    if start1 != -1 and end1 != -1:
-        openings.append((start1, end1, mode, edge1))
-    # for case if opening is at edge
+    # append opening to openings list
+    # constructor of Rectangle needs (xmin, xmax, ymin, ymax)
+    if start1 != -1 and end1 != -1 and horizontal:
+        openings.append(Rectangle(start1, end1, rect.ymin, rect.ymax))
+    elif start1 != -1 and end1 != -1:
+        openings.append(Rectangle(rect.xmin, rect.xmax, start1, end1))
+    elif start1 != -1 and horizontal:
+        openings.append(Rectangle(start1, width, rect.ymin, rect.ymax))
     elif start1 != -1:
-        if mode == 1:
-            end1 = scan_range - 1
-            edge1 = 3
-        elif mode == 2:
-            end1 = scan_range - 1
-            edge1 = 2
-        elif mode == 3:
-            end1 = scan_range - 1
-            edge1 = 4
-        elif mode == 4:
-            end1 = offset + scan_range - 1
-            edge1 = 4
-        openings.append((start1, end1, mode, edge1))
-        
-    if start2 != -1 and end2 != -1:
-        openings.append((start2, end2, mode, edge2))
-    # for case if 2nd opening is at edge
+        openings.append(Rectangle(rect.xmin, rect.xmax, start1, height))
+        return
+    
+    if start2 != -1 and end2 != -1 and horizontal:
+        openings.append(Rectangle(start2, end2, rect.ymin, rect.ymax))
+    elif start2 != -1 and end2 != -1:
+        openings.append(Rectangle(rect.xmin, rect.xmax, start2, end2))
+    elif start2 != -1 and horizontal:
+        openings.append(Rectangle(start2, width, rect.ymin, rect.ymax))
     elif start2 != -1:
-        if mode == 1:
-            end2 = scan_range - 1
-            edge2 = 3
-        elif mode == 2:
-            end2 = scan_range - 1
-            edge2 = 2
-        elif mode == 3:
-            end2 = scan_range - 1
-            edge2 = 4
-        elif mode == 4:
-            end2 = offset + scan_range - 1
-            edge2 = 4
-        openings.append((start2, end2, mode, edge2))
-
+        openings.append(Rectangle(rect.xmin, rect.xmax, start2, height))
+    
     return
 
     
 """
-finds the shortest path through the maze, and calls make_path to draw it
-to the list of pixel values
+finds the shortest path through the maze via BFS, but keeps a certain distance from the walls
 
 """
-def find_path(openings, width, height, pixels):
-    size = width * height
-    path_color = 255
+def find_path(openings, pixels):
+    global PATH_COLOR
+    global MARK_PATH
+    
+    # constants
+    LEFT = 1
+    RIGHT = 2
+    UP = 3
+    DOWN = 4
+    UNEXPLORED = -1
+    
+    height = len(pixels)
+    width = len(pixels[0])
     
     # for tracing path and avoiding exploring same pixel twice
     # pixels explored will store the index of the previous explored pixel
-    # in other words the pixel value points to the pixel it recently visited
-    path = [-1] * size
+    # in other words the pixel value points to the pixel it visited in the previous step
+    path = [[UNEXPLORED] * width for i in xrange(height)]
     
     # put exit pixel coordinates into set
     exit = set()
-    if openings[1][2] == 2 or openings[1][2] == 4:
-        for x in xrange(openings[1][0], openings[1][1] + 1):
-            exit.add(x)
-    else:
-        for x in xrange(openings[1][0], openings[1][1] + width, width):
-            exit.add(x)
-    
+    x = openings[1]
+    for i in xrange(x.ymin, x.ymax):
+        for j in xrange(x.xmin, x.xmax):
+            exit.add((i, j))
     
     # perform BFS on maze
+    print "searching for shortest path on maze..."
+    
+    wall_dist = dist_to_wall(pixels)
+    side_buffer = min(openings[0].long_len(), openings[1].long_len()) / 2
+    
+    directions = [(0, -1, LEFT), (0, 1, RIGHT), (-1, 0, UP), (1, 0, DOWN)]
+    
+    # loop until path found
+    for buffer in xrange(side_buffer, 0, -1):
+        h = []
+        
+        # add pixels from first opening to heap
+        x = openings[0]
+        for i in xrange(x.ymin, x.ymax):
+            for j in xrange(x.xmin, x.xmax):
+                if wall_dist[i][j] >= buffer:
+                    path[i][j] = (i, j)
+                    heapq.heappush(h, (0, i, j, 0))
+        
+        while h:
+            data = heapq.heappop(h)
+            priority = data[0]
+            prev_coord = (data[1], data[2])
+            prev_dir = data[3]
+            
+            for move in directions:
+                i = data[1] + move[0]
+                j = data[2] + move[1]
+                new_dir = move[2]
+                
+                # check if new pixel coordinate is 
+                # 1. out of bounds 2. already explored 3. not part of path 4. if is part of exit
+                in_bounds = i >= 0 and i < height and j >= 0 and j < width
+                if (in_bounds and path[i][j] == UNEXPLORED and pixels[i][j] == PATH_COLOR 
+                  and wall_dist[i][j] >= buffer):
+                    path[i][j] = prev_coord
+                    # penalize changing directions to prevent diagonal lines
+                    new_priority = priority if new_dir == prev_dir else priority + 1
+                    heapq.heappush(h, (new_priority, i, j, new_dir))
+                    
+                    if (i, j) in exit:
+                        print "finished searching for shortest path"
+                        make_path(pixels, path, (i, j), buffer)
+                        
+                        return
+    
+    print "error, no path found in maze"
+    sys.exit()
+  
+
+"""
+calculates each pixel's distance to the wall
+used for A* search heuristic
+@return wall_dist: list containing pixel's distance to nearest wall
+
+"""
+def dist_to_wall(pixels):
+    global PATH_COLOR
+    UNEXPLORED = -1
+    
+    height = len(pixels)
+    width = len(pixels[0])
+    
+    wall_dist = [[UNEXPLORED] * width for i in xrange(height)]
+    directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]
     q = Queue.Queue()
-    print "running BFS on maze..."
     
-    # add pixels from first opening to queue for BFS
-    if openings[0][2] == 2 or openings[0][2] == 4:
-        for x in xrange(openings[0][0], openings[0][1] + 1):
-            path[x] = x
-            q.put(x)
-    else:
-        for x in xrange(openings[0][0], openings[0][1] + width, width):
-            path[x] = x
-            q.put(x)
+    # put all wall elements onto Queue
+    for i in xrange(height):
+        for j in xrange(width):
+            if pixels[i][j] != PATH_COLOR:
+                q.put((i, j))
+                wall_dist[i][j] = 0
     
+    # run BFS
     while not q.empty():
-        coor = q.get()
+        coord = q.get()
+        val = wall_dist[coord[0]][coord[1]]
         
-        left = coor - 1
-        top = coor - width
-        right = coor + 1
-        bottom = coor + width
-        
-        # check if new pixel coordinate is 
-        # 1. out of bounds 2. already explored 3. not part of path 4. if is part of exit
-        if left >= 0 and path[left] == -1 and pixels[left] == path_color:
-            path[left] = coor
-            q.put(left)
-            if left in exit:
-                final_exit = left
-                break
-        if top >= 0 and path[top] == -1 and pixels[top] == path_color:
-            path[top] = coor
-            q.put(top)
-            if top in exit:
-                final_exit = top
-                break
-        if right < size and path[right] == -1 and pixels[right] == path_color:
-            path[right] = coor
-            q.put(right)
-            if right in exit:
-                final_exit = right
-                break
-        if bottom < size and path[bottom] == -1 and pixels[bottom] == path_color:
-            path[bottom] = coor
-            q.put(bottom)
-            if bottom in exit:
-                final_exit = bottom
-                break
+        for x in directions:
+            i = coord[0] + x[0]
+            j = coord[1] + x[1]
+            new_coord = (i, j)
+            
+            # check if new pixel coordinate is 
+            # 1. out of bounds 2. already explored 3. part of path
+            in_bounds = i >= 0 and i < height and j >= 0 and j < width
+            if in_bounds and wall_dist[i][j] == UNEXPLORED:
+                wall_dist[i][j] = val + 1
+                q.put(new_coord)
     
-    if q.empty():
-        print "error, no path found in maze"
-        sys.exit()
-        
-    print "finished searching for shortest path"
-    make_path(pixels, path, final_exit, width, height)
-    
-    return
+    return wall_dist
     
     
 """
@@ -356,128 +303,85 @@ modifies the pixel values to highlight and thicken trace
 marks pixels that are part of shortest path with value = -1
 
 """ 
-def make_path(pixels, path, final_exit, width, height):
-    size = width * height
-    path_color = 255
+def make_path(pixels, path, final_exit, buffer):
+    global PATH_COLOR
+    global MARK_PATH
+    DIR_LEFT = (0, -1)
+    DIR_RIGHT = (0, 1)
+    
+    height = len(pixels)
+    width = len(pixels[0])
+    
     print "drawing shortest path..."
     
     # traverse backwards to find and mark shortest path
     prev = final_exit
-    pixels[prev] = -1
-    x = path[prev]
-    diff = prev - x
-    wall_at_side = 0
+    pixels[prev[0]][prev[1]] = MARK_PATH
+    x = path[prev[0]][prev[1]]
+    prev_dir = (prev[0] - x[0], prev[1] - x[1])
     
-    """
-    wall_at_side:
-    0: none
-    1: top
-    2: bottom
-    3: left
-    4: right
-    5: above and below or left and right
-    
-    coordinates of pixels nearby regarding x:
-    
-           x - width
-              ^
-              |
-    x - 1 <-- x --> x + 1
-              |
-              v
-           x + width
-         
-    """
-    
-    exit = 0
-    # exit one iteration after reaching the entrance, for trace drawing purposes
-    while exit <= 2:
-    
+    end = 0
+    reach_end = False
+    while not reach_end:
         # if direction has changed, color the correct pixels to make path wider
-        if prev - x != diff:
-            retrace = prev
-            while retrace >= 0 and retrace < size and pixels[retrace] == -1:
-                if wall_at_side == 1:
-                    pixels[retrace + width] = -1
-                    pixels[retrace + 2 * width] = -1
-                elif wall_at_side == 2:
-                    pixels[retrace - width] = -1
-                    pixels[retrace - 2 * width] = -1
-                elif wall_at_side == 3:
-                    pixels[retrace + 1] = -1
-                    pixels[retrace + 2] = -1
-                elif wall_at_side == 4:
-                    pixels[retrace - 1] = -1
-                    pixels[retrace - 2] = -1
-                retrace += diff
-                
-            # reinitialize wall and diff after retracing and thickening trace
-            wall_at_side = 0
-            diff = prev - x
-        
-        # for traces going left/right, check above and below for walls/out of bounds
-        if diff == 1 or diff == -1:
-            top_out = x - width < 0 or pixels[x - width] != path_color and pixels[x - width] != -1
-            bottom_out = (x + width >= size or pixels[x + width] != path_color 
-                          and pixels[x + width] != -1)
+        new_dir = (prev[0] - x[0], prev[1] - x[1])
+        if new_dir != prev_dir and buffer >= 2:
+            i = prev[0]
+            j = prev[1]
+            in_bounds = i >= 0 and i < height and j >= 0 and j < width
             
-            if wall_at_side == 0 and top_out and bottom_out:
-                wall_at_side = 5
-            elif wall_at_side == 0 and top_out: 
-                wall_at_side = 1
-            elif wall_at_side == 0 and bottom_out: 
-                wall_at_side = 2
-            elif wall_at_side == 1 and bottom_out:
-                wall_at_side = 5
-            elif wall_at_side == 2 and top_out:
-                wall_at_side = 5
+            while in_bounds and pixels[i][j] == -1:
+                if prev_dir == DIR_LEFT or prev_dir == DIR_RIGHT:
+                    for k in xrange(1, buffer / 2):
+                        pixels[i - k][j] = MARK_PATH
+                        pixels[i + k][j] = MARK_PATH
+                else:
+                    for k in xrange(1, buffer / 2):
+                        pixels[i][j - k] = MARK_PATH
+                        pixels[i][j + k] = MARK_PATH
                 
-        # for traces going up or down, check left/right for walls/out of bounds
-        else:
-            left_out = x - 1 < 0 or pixels[x - 1] != path_color and pixels[x - 1] != -1
-            right_out = x + 1 >= size or pixels[x + 1] != path_color and pixels[x + 1] != -1
+                # update i and j
+                i += prev_dir[0]
+                j += prev_dir[1]
+                in_bounds = i >= 0 and i < height and j >= 0 and j < width
             
-            if wall_at_side == 0 and left_out and right_out: 
-                wall_at_side = 5
-            elif wall_at_side == 0 and left_out: 
-                wall_at_side = 3
-            elif wall_at_side == 0 and right_out: 
-                wall_at_side = 4
-            elif wall_at_side == 3 and right_out:
-                wall_at_side = 5
-            elif wall_at_side == 4 and left_out:
-                wall_at_side = 5
+            # update direction
+            prev_dir = new_dir
         
         # mark trace
-        pixels[x] = -1
+        pixels[x[0]][x[1]] = MARK_PATH
         # update variables for traversing
         prev = x
-        x = path[x]
+        x = path[x[0]][x[1]]
         
-        # exit condition
-        if x == path[x]:
-            exit += 1
+        # exit one iteration after reaching the entrance, for trace drawing purposes
+        if x == path[x[0]][x[1]]:
+            end += 1
+            reach_end = end > 2
     
     return
+    
 
- 
 """
 saves maze with shortest path into an image file
 
 """
 def save_image(im, pixels, filename):
+    global MARK_PATH
+
     pixels2 = []
     wall = (0, 0, 0)
     path = (100, 100, 100)
     trace = (0, 255, 0)
     
-    for p in pixels:
-        if p == 255:
-            pixels2.append(path)
-        elif p == -1:
-            pixels2.append(trace)
-        else:
-            pixels2.append(wall)
+    for row in pixels:
+        for p in row:
+            if p == 255:
+                pixels2.append(path)
+            elif p == MARK_PATH:
+                pixels2.append(trace)
+            else:
+                pixels2.append(wall)
             
     im2 = Image.new(im.mode, im.size)
     im2 = im2.convert("RGB")
@@ -491,95 +395,41 @@ def save_image(im, pixels, filename):
 
 
 """
-shows image for debugging purposes
-
-"""
-def show_image(im, pixels):
-    pixels2 = []
-    wall = (0, 0, 0)
-    path = (100, 100, 100)
-    trace = (0, 255, 0)
-    # print pixels
-    
-    for p in pixels:
-        if p == 255:
-            pixels2.append(path)
-        elif p == -1:
-            pixels2.append(trace)
-        else:
-            pixels2.append(wall)
-            
-    im2 = Image.new(im.mode, im.size)
-    im2 = im2.convert("RGB")
-    
-    # print pixels
-    im2.putdata(pixels2)
-    im2.show()
-    
-    return
-   
-   
-"""
-prints openings for debugging purposes
-
-"""
-def show_opening(pixels, width, openings, im):
-
-    start = openings[0][0]
-    end = openings[0][1]
-    mode = openings[0][2]
-    if mode == 2 or mode == 4:
-        for x in xrange(start, end + 1):
-            pixels[x] = -1
-            
-    else:
-        for x in xrange(start, end + width, width):
-            pixels[x] = -1
-        
-    show_image(im, pixels)
-   
-   
-"""
 main
 
 """
 def main():
     args = sys.argv[1:]
     
-    if args == []:
+    filename = args[0]
+      
+    try:
+        im = Image.open(filename)
+    except IOError:
+        print "Error in file name"
         print "Please place maze image in the same directory as the script and enter file name"
-        filename = raw_input()
-    else:
-        filename = args[0]
-    
-    while True:    
-        try:
-            im = Image.open(filename)
-            break
-        except IOError:
-            print "Error in file name"
-            print "Please place maze image in the same directory as the script and enter file name"
-            filename = raw_input()
+        sys.exit()
     
     # get pixel values and store to list
     im = im.convert("L")
     pixels = list(im.getdata())
     width, height = im.size
+    pixels = [pixels[i * width:(i + 1) * width] for i in xrange(height)]
     
     # crop image
-    im = crop_maze(width, height, im, pixels)
+    im = crop_maze(im, pixels)
     pixels = list(im.getdata())
     width, height = im.size
+    pixels = [pixels[i * width:(i + 1) * width] for i in xrange(height)]
     
     # find entrance and exit
-    openings = find_entrance_exit(width, height, pixels)
+    openings = find_entrance_exit(pixels)
     
     # find shortest path
-    find_path(openings, width, height, pixels)
+    find_path(openings, pixels)
     
     # print image to same directory
     save_image(im, pixels, filename)
-    # show_image(im, pixels)
 
     
 if __name__ == '__main__':
