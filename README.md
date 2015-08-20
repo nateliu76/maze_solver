@@ -13,6 +13,14 @@ To run the maze solver, type following in command line
 py maze_solver.py your_maze_image.png
 ```
 
-I have also provided a several maze images you can try it on
+Several maze images to try it on...
+
+http://www.uefap.com/images/maze.gif
+
+http://www.jigsaw-puzzles-free.com/Mazes/Printable/Images/Kids%20Maze%2018.gif
+
+http://sierra.nmsu.edu/morandi/CourseMaterials/graphics/RedMaze.gif
+
+http://www.mazes.org.uk/
 
 Have fun!
