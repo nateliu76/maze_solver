@@ -1,6 +1,6 @@
 # maze_solver
 
-To run maze solver on a valid maze image (rectangular, axis aligned, and with two openings), you will need:
+To run maze solver on a valid maze image (**rectangular, axis aligned, and with two openings**), you will need:
 
 1. maze_solver.py
 2. Maze.py
