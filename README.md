@@ -2,7 +2,8 @@
 
 To run maze solver on a valid maze image (**rectangular, axis aligned, and with two openings**), you will need:
 
-1. maze_solver.py
+1. Python 2
+2. maze_solver.py
 2. Maze.py
 3. The Python Imaging Library (PIL) installed*
 4. The maze image you want to solve
@@ -14,7 +15,7 @@ To run the maze solver, type following in command line
 py maze_solver.py your_maze_image.png
 ```
 
-Several maze images to try it on...
+Several maze images to try it on:
 
 http://www.uefap.com/images/maze.gif
 
@@ -27,7 +28,7 @@ http://www.mazes.org.uk/
 Have fun!
 
 
-Here are some examples:
+Here are some examples of solved mazes:
 
 Maze image:
 
